@@ -39,7 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-    # 4. Autentikasi GEE (Cara Profesional)
+  # 4. Autentikasi GEE (Cara Profesional)
       - name: Authenticate Google Earth Engine
         env:
           # Ambil seluruh JSON key dari GitHub Secret
@@ -48,7 +48,7 @@ jobs:
           # Tulis string JSON itu ke file sementara
           echo "$GEE_KEY_JSON" > service_key.json
           
-          # Gunakan 'earthengine' CLI untuk otentikasi dengan file tersebut
+          # SALAH: Flag ada setelah 'authenticate'
           earthengine authenticate --service-account-file service_key.json
           
       # 5. Jalankan skrip Python Anda
