@@ -23,9 +23,6 @@ GEE_FEATURE_CONFIG = {
     # 'CO': ('COPERNICUS/S5P/OFFL/L3_CO', 'CO_column_number_density', 1000),
     # 'O3': ('COPERNICUS/S5P/OFFL/L3_O3', 'O3_column_number_density', 1000),
     # 'SO2': ('COPERNICUS/S5P/OFFL/L3_SO2', 'SO2_column_number_density', 1000),
-    
-    # CATATAN: 'RH' mungkin perlu penanganan khusus jika dihitung dari Td
-    # 'RH': ('ECMWF/ERA5_LAND/HOURLY', 'relative_humidity_2m', 11132), 
 }
 MAX_LOOKBACK_DAYS = 30 # Batas pencarian data mundur
 # ----------------------------------------
@@ -40,29 +37,19 @@ def get_latest_non_null_value(collection_name, band_name, aoi, scale, start_date
         try:
             collection = ee.ImageCollection(collection_name).filterDate(start_str, end_str).select(band_name)
             
-            # --- PENANGANAN KHUSUS ---
-            # 1. Konversi Suhu (Kelvin -> Celsius)
             if band_name == 'temperature_2m':
                 def k_to_c(image):
                     return image.subtract(273.15).copyProperties(image, image.propertyNames())
                 image = collection.map(k_to_c).mean().clip(aoi)
-            
-            # 2. Tambahkan penanganan khusus lain di sini (misal: RH)
-            # elif band_name == 'relative_humidity_2m':
-            #    ... (kode khusus Anda untuk RH) ...
-                
-            # 3. Untuk semua band normal lainnya
             else:
                 image = collection.mean().clip(aoi)
             
-            # Ekstrak nilainya
             value = image.reduceRegion(reducer=ee.Reducer.mean(), geometry=aoi, scale=scale).get(band_name).getInfo()
             
             if value is not None:
                 print(f"  ✓ Ditemukan data {band_name} pada: {start_str} (Nilai: {value:.2f})")
                 return value, start_str
         except Exception as e:
-            # Sering terjadi jika tidak ada gambar sama sekali di hari itu
             pass 
     print(f"  ✗ GAGAL: Tidak ditemukan data {band_name} setelah {MAX_LOOKBACK_DAYS} hari.")
     return None, start_date.strftime('%Y-%m-%d')
@@ -70,14 +57,14 @@ def get_latest_non_null_value(collection_name, band_name, aoi, scale, start_date
 def get_features_from_gee(aoi, date):
     """Mengambil SEMUA data fitur dari GEE dengan logika ffill."""
     feature_dict = {}
-    feature_dates = {} # Untuk melacak tanggal asli data
+    feature_dates = {} 
     
     for feature_name, (coll, band, scale) in GEE_FEATURE_CONFIG.items():
         value, data_date = get_latest_non_null_value(coll, band, aoi, scale, date)
         
         if value is None:
             print(f"  WARNING: '{feature_name}' diisi 0 setelah gagal mencari.")
-            feature_dict[feature_name] = 0 # Ganti 0 dengan np.nan jika model Anda menanganinya
+            feature_dict[feature_name] = 0
         else:
             feature_dict[feature_name] = value
         
@@ -93,18 +80,19 @@ print("=" * 60)
 print(f"Memulai GitHub Action: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 60)
 
-# Cek apakah Secret URL_TARGET_API ada
 if URL_TARGET_API is None:
     print("✗ GAGAL: Secret 'URL_TARGET_API' tidak ditemukan.")
     print("  Pastikan Anda sudah menambahkannya di Settings -> Secrets -> Actions.")
-    sys.exit(1) # Keluar dengan error
+    sys.exit(1)
 
 # --- 1. Inisialisasi GEE (Metode Eksplisit) ---
+# INI ADALAH KODE YANG BARU DAN BENAR
 try:
     # Info ini harus sesuai dengan file JSON Anda
     SERVICE_ACCOUNT_EMAIL = 'estimatepm25@tugas-akhir-473911.iam.gserviceaccount.com'
     
     # Path ini harus sesuai dengan yang dibuat di file .yml
+    # File .yml Anda (Langkah 5) SUDAH MEMBUAT file 'service_key.json'
     KEY_FILE_PATH = 'service_key.json' 
     
     print(f"Mencoba autentikasi GEE secara EKSPLISIT dengan:")
@@ -144,7 +132,7 @@ except Exception as e:
 
 # --- 3. Ambil Data Fitur dari GEE ---
 print("\n--- Mengambil Fitur dari GEE (dengan ffill) ---")
-target_date = datetime.now() # Ambil data paling update s/d "hari ini"
+target_date = datetime.now() 
 aoi = ee.Geometry.Point(LOKASI_KOORDINAT)
 data_fitur, data_dates = get_features_from_gee(aoi, target_date)
 print(f"Fitur yang didapat: {data_fitur}")
@@ -152,10 +140,8 @@ print(f"Fitur yang didapat: {data_fitur}")
 # --- 4. Lakukan Estimasi ---
 print("\n--- Melakukan Estimasi PM2.5 ---")
 try:
-    # Buat DataFrame HANYA dengan fitur yang didapat dari GEE
     df_fitur = pd.DataFrame([data_fitur])
     
-    # Validasi: Pastikan semua fitur yang dibutuhkan model ada di GEE_FEATURE_CONFIG
     missing_in_gee = set(feature_cols) - set(df_fitur.columns)
     if missing_in_gee:
         print(f"  ✗ GAGAL: Fitur yang dibutuhkan model TIDAK ADA di GEE_FEATURE_CONFIG:")
@@ -163,19 +149,13 @@ try:
         print("    Harap tambahkan fitur ini ke 'GEE_FEATURE_CONFIG' di main.py.")
         sys.exit(1)
         
-    # Susun ulang kolom DataFrame agar SAMA PERSIS dengan urutan 'feature_cols'
     df_fitur_ordered = df_fitur[feature_cols] 
-    
-    # Scaling
     data_scaled = scaler.transform(df_fitur_ordered)
-    
-    # Prediksi
     prediksi_pm25 = model.predict(data_scaled)[0]
     print(f"✓✓ HASIL ESTIMASI: {prediksi_pm25:.4f} µg/m³")
     
 except Exception as e:
     print(f"✗ GAGAL saat estimasi: {e}")
-    print("  Ini bisa terjadi jika urutan fitur tidak cocok (error di atas akan menjelaskannya).")
     sys.exit(1)
 
 # --- 5. Kirim Hasil ke API Anda ---
@@ -185,7 +165,7 @@ payload = {
     'tanggal_prediksi': target_date.strftime('%Y-%m-%d'),
     'prediksi_pm25': prediksi_pm25,
     'sumber_data': 'GEE_RF_Model_GitHub_Action',
-    'tanggal_fitur': data_dates, # Kirim info tanggal asli datanya
+    'tanggal_fitur': data_dates, 
     'fitur_asli': data_fitur
 }
 
