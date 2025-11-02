@@ -39,17 +39,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-  # 4. Autentikasi GEE (Cara Profesional)
-      - name: Authenticate Google Earth Engine
+ # 4. Buat File Kunci Akun Layanan
+      - name: Create Service Account Key File
         env:
-          # Ambil seluruh JSON key dari GitHub Secret
           GEE_KEY_JSON: ${{ secrets.GEE_SERVICE_ACCOUNT_KEY }}
         run: |
-          # Tulis string JSON itu ke file sementara
           echo "$GEE_KEY_JSON" > service_key.json
-          
-          # BENAR: Flag --service_account_file ada SEBELUM 'authenticate'
-          earthengine --service_account_file service_key.json authenticate
+          echo "✓ File service_key.json telah dibuat"
+
+      # 5. Ekspor Variabel Lingkungan Google Auth
+      - name: Set Google Auth Environment Variable
+        run: |
+          echo "GOOGLE_APPLICATION_CREDENTIALS=${{ github.workspace }}/service_key.json" >> $GITHUB_ENV
+          echo "✓ Variabel GOOGLE_APPLICATION_CREDENTIALS telah diatur"
           
       # 5. Jalankan skrip Python Anda
       - name: Run Python Script
