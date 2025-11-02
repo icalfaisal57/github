@@ -1,0 +1,55 @@
+# Nama workflow
+name: Run Daily PM2.5 Prediction
+
+# Pemicu (Trigger)
+on:
+  # 1. Pemicu berdasarkan jadwal (CRON)
+  schedule:
+    # Jalankan jam 7 pagi WIB (WIB = UTC+7)
+    # 0 0 * * * berarti jam 00:00 UTC, atau 7:00 WIB
+    - cron: '0 0 * * *'
+  
+  # 2. Pemicu manual (untuk testing)
+  # Ini menambahkan tombol "Run workflow" di tab Actions
+  workflow_dispatch:
+
+# Pekerjaan yang harus dilakukan
+jobs:
+  run-prediction:
+    # Gunakan OS virtual terbaru dari GitHub
+    runs-on: ubuntu-latest
+    
+    # Langkah-langkah eksekusi
+    steps:
+      # 1. Download kode Anda dari repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true # PENTING: Aktifkan LFS untuk menarik file .joblib
+
+      # 2. Setup Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # Gunakan versi Python yang stabil
+      
+      # 3. Install semua library dari requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      # 4. (TRIK UTAMA) Autentikasi GEE
+      # Ini mengambil Secret GEE_CREDENTIALS dan menuliskannya
+      # ke file yang diharapkan oleh GEE di dalam runner virtual
+      - name: Authenticate Google Earth Engine
+        run: |
+          mkdir -p ~/.config/earthengine
+          echo "${{ secrets.GEE_CREDENTIALS }}" > ~/.config/earthengine/credentials
+          
+      # 5. Jalankan skrip Python Anda
+      - name: Run Python Script
+        env:
+          # Berikan skrip akses ke Secret URL_TARGET_API
+          URL_TARGET_API: ${{ secrets.URL_TARGET_API }}
+        run: python main.py
