@@ -48,8 +48,8 @@ jobs:
           # Tulis string JSON itu ke file sementara
           echo "$GEE_KEY_JSON" > service_key.json
           
-          # SALAH: Flag ada setelah 'authenticate'
-          earthengine authenticate --service-account-file service_key.json
+          # BENAR: Flag --service_account_file ada SEBELUM 'authenticate'
+          earthengine --service_account_file service_key.json authenticate
           
       # 5. Jalankan skrip Python Anda
       - name: Run Python Script
