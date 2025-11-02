@@ -39,13 +39,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-      # 4. (TRIK UTAMA) Autentikasi GEE
-      # Ini mengambil Secret GEE_CREDENTIALS dan menuliskannya
-      # ke file yang diharapkan oleh GEE di dalam runner virtual
+    # 4. Autentikasi GEE (Cara Profesional)
       - name: Authenticate Google Earth Engine
+        env:
+          # Ambil seluruh JSON key dari GitHub Secret
+          GEE_KEY_JSON: ${{ secrets.GEE_SERVICE_ACCOUNT_KEY }}
         run: |
-          mkdir -p ~/.config/earthengine
-          echo "${{ secrets.GEE_CREDENTIALS }}" > ~/.config/earthengine/credentials
+          # Tulis string JSON itu ke file sementara
+          echo "$GEE_KEY_JSON" > service_key.json
+          
+          # Gunakan 'earthengine' CLI untuk otentikasi dengan file tersebut
+          earthengine authenticate --service-account-file service_key.json
           
       # 5. Jalankan skrip Python Anda
       - name: Run Python Script
