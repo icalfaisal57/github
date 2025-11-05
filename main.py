@@ -21,7 +21,7 @@ GEE_FEATURE_CONFIG = {
     'CO': ('COPERNICUS/S5P/OFFL/L3_CO', 'CO_column_number_density', 1000),
     'O3': ('COPERNICUS/S5P/OFFL/L3_O3', 'O3_column_number_density', 1000),
     'SO2': ('COPERNICUS/S5P/OFFL/L3_SO2', 'SO2_column_number_density', 1000),
-    'AOD': ('MODIS/061/MCD19A2_GRANULES', 'Optical_Depth_047', 1000),
+    'AOD': ('MODIS/006/MCD19A2_GRANULES', 'Optical_Depth_047', 1000),
 }
 
 MAX_LOOKBACK_DAYS = 30 # Batas pencarian data mundur
@@ -101,6 +101,9 @@ def get_features_from_gee(aoi, date):
     feature_dict = {}
     feature_dates = {}
     
+    # Daftar fitur yang tidak boleh negatif (polutan dan parameter fisik)
+    NON_NEGATIVE_FEATURES = ['CO', 'NO2_tropo', 'O3', 'SO2', 'AOD', 'Wind_Speed']
+    
     print(f"Total fitur yang akan diambil: {len(GEE_FEATURE_CONFIG)} fitur reguler + 2 fitur wind")
     
     # Ambil fitur reguler dari GEE_FEATURE_CONFIG
@@ -112,13 +115,26 @@ def get_features_from_gee(aoi, date):
             print(f"  WARNING: '{feature_name}' diisi 0 setelah gagal mencari.")
             feature_dict[feature_name] = 0
         else:
-            feature_dict[feature_name] = value
+            # Handle nilai negatif untuk polutan
+            if feature_name in NON_NEGATIVE_FEATURES and value < 0:
+                print(f"  ⚠ PERHATIAN: {feature_name} bernilai negatif ({value:.6e})")
+                print(f"  → Dikoreksi menjadi 0 (nilai negatif tidak valid untuk polutan)")
+                feature_dict[feature_name] = 0
+            else:
+                feature_dict[feature_name] = value
         
         feature_dates[feature_name] = data_date
     
     # Ambil data angin (Wind Speed & Direction) secara terpisah
     print(f"\n[Wind Features]")
     wind_speed, wind_dir, wind_date = get_wind_features(aoi, 11132, date)
+    
+    # Wind speed tidak boleh negatif (hasil dari sqrt, tapi handle untuk jaga-jaga)
+    if wind_speed < 0:
+        print(f"  ⚠ PERHATIAN: Wind Speed bernilai negatif ({wind_speed:.2f})")
+        print(f"  → Dikoreksi menjadi 0")
+        wind_speed = 0
+    
     feature_dict['Wind_Speed'] = wind_speed
     feature_dict['Wind_Direction'] = wind_dir
     feature_dates['Wind_Speed'] = wind_date
