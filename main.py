@@ -4,6 +4,7 @@ import joblib
 import requests
 import sys
 import os
+import math
 from datetime import datetime, timedelta
 
 # --- KONFIGURASI UTAMA (WAJIB DIISI) ---
@@ -18,12 +19,12 @@ LOKASI_KOORDINAT = [106.821389, -6.398983] # [lon, lat]
 GEE_FEATURE_CONFIG = {
     'NO2_tropo': ('COPERNICUS/S5P/OFFL/L3_NO2', 'tropospheric_NO2_column_number_density', 1000),
     'T2m_C': ('ECMWF/ERA5_LAND/HOURLY', 'temperature_2m', 11132),
-    
-    # CONTOH FITUR LAIN (HAPUS TANDA # DAN SESUAIKAN JIKA PERLU)
-    # 'CO': ('COPERNICUS/S5P/OFFL/L3_CO', 'CO_column_number_density', 1000),
-    # 'O3': ('COPERNICUS/S5P/OFFL/L3_O3', 'O3_column_number_density', 1000),
-    # 'SO2': ('COPERNICUS/S5P/OFFL/L3_SO2', 'SO2_column_number_density', 1000),
+    'CO': ('COPERNICUS/S5P/OFFL/L3_CO', 'CO_column_number_density', 1000),
+    'O3': ('COPERNICUS/S5P/OFFL/L3_O3', 'O3_column_number_density', 1000),
+    'SO2': ('COPERNICUS/S5P/OFFL/L3_SO2', 'SO2_column_number_density', 1000),
+    'AOD': ('MODIS/006/MCD19A2_GRANULES', 'Optical_Depth_047', 1000),
 }
+
 MAX_LOOKBACK_DAYS = 30 # Batas pencarian data mundur
 # ----------------------------------------
 
@@ -54,11 +55,52 @@ def get_latest_non_null_value(collection_name, band_name, aoi, scale, start_date
     print(f"  ✗ GAGAL: Tidak ditemukan data {band_name} setelah {MAX_LOOKBACK_DAYS} hari.")
     return None, start_date.strftime('%Y-%m-%d')
 
+def get_wind_features(aoi, scale, start_date):
+    """Menghitung Wind Speed dan Wind Direction dari komponen U dan V."""
+    print(f"  Mencari data angin (Wind Speed & Direction)...")
+    for i in range(MAX_LOOKBACK_DAYS):
+        current_date = start_date - timedelta(days=i)
+        start_str = current_date.strftime('%Y-%m-%d')
+        end_str = (current_date + timedelta(days=1)).strftime('%Y-%m-%d')
+        try:
+            collection = ee.ImageCollection('ECMWF/ERA5_LAND/HOURLY').filterDate(start_str, end_str)
+            
+            # Ambil komponen U dan V
+            u_image = collection.select('u_component_of_wind_10m').mean().clip(aoi)
+            v_image = collection.select('v_component_of_wind_10m').mean().clip(aoi)
+            
+            u_value = u_image.reduceRegion(
+                reducer=ee.Reducer.mean(), 
+                geometry=aoi, 
+                scale=scale
+            ).get('u_component_of_wind_10m').getInfo()
+            
+            v_value = v_image.reduceRegion(
+                reducer=ee.Reducer.mean(), 
+                geometry=aoi, 
+                scale=scale
+            ).get('v_component_of_wind_10m').getInfo()
+            
+            if u_value is not None and v_value is not None:
+                # Hitung Wind Speed dan Direction
+                wind_speed = math.sqrt(u_value**2 + v_value**2)
+                wind_direction = math.degrees(math.atan2(v_value, u_value)) % 360
+                
+                print(f"  ✓ Ditemukan data angin pada: {start_str}")
+                print(f"    Wind Speed: {wind_speed:.2f} m/s, Wind Direction: {wind_direction:.2f}°")
+                return wind_speed, wind_direction, start_str
+        except Exception as e:
+            pass
+    
+    print(f"  ✗ GAGAL: Tidak ditemukan data angin setelah {MAX_LOOKBACK_DAYS} hari.")
+    return 0, 0, start_date.strftime('%Y-%m-%d')
+
 def get_features_from_gee(aoi, date):
     """Mengambil SEMUA data fitur dari GEE dengan logika ffill."""
     feature_dict = {}
     feature_dates = {} 
     
+    # Ambil fitur reguler dari GEE_FEATURE_CONFIG
     for feature_name, (coll, band, scale) in GEE_FEATURE_CONFIG.items():
         value, data_date = get_latest_non_null_value(coll, band, aoi, scale, date)
         
@@ -69,6 +111,13 @@ def get_features_from_gee(aoi, date):
             feature_dict[feature_name] = value
         
         feature_dates[feature_name] = data_date
+    
+    # Ambil data angin (Wind Speed & Direction) secara terpisah
+    wind_speed, wind_dir, wind_date = get_wind_features(aoi, 11132, date)
+    feature_dict['Wind_Speed'] = wind_speed
+    feature_dict['Wind_Direction'] = wind_dir
+    feature_dates['Wind_Speed'] = wind_date
+    feature_dates['Wind_Direction'] = wind_date
 
     print("✓ Pengambilan data GEE selesai.")
     return feature_dict, feature_dates
@@ -86,13 +135,11 @@ if URL_TARGET_API is None:
     sys.exit(1)
 
 # --- 1. Inisialisasi GEE (Metode Eksplisit) ---
-# INI ADALAH KODE YANG BARU DAN BENAR
 try:
     # Info ini harus sesuai dengan file JSON Anda
     SERVICE_ACCOUNT_EMAIL = 'estimatepm25@tugas-akhir-473911.iam.gserviceaccount.com'
     
     # Path ini harus sesuai dengan yang dibuat di file .yml
-    # File .yml Anda (Langkah 5) SUDAH MEMBUAT file 'service_key.json'
     KEY_FILE_PATH = 'service_key.json' 
     
     print(f"Mencoba autentikasi GEE secara EKSPLISIT dengan:")
