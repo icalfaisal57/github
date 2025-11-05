@@ -7,15 +7,6 @@ import os
 import math
 from datetime import datetime, timedelta
 
-GEE_FEATURE_CONFIG = {
-    'NO2_tropo': ('COPERNICUS/S5P/OFFL/L3_NO2', 'tropospheric_NO2_column_number_density', 1000),
-    'T2m_C': ('ECMWF/ERA5_LAND/HOURLY', 'temperature_2m', 11132),
-    'CO': ('COPERNICUS/S5P/OFFL/L3_CO', 'CO_column_number_density', 1000),
-    'O3': ('COPERNICUS/S5P/OFFL/L3_O3', 'O3_column_number_density', 1000),
-    'SO2': ('COPERNICUS/S5P/OFFL/L3_SO2', 'SO2_column_number_density', 1000),
-    'AOD': ('MODIS/006/MCD19A2_GRANULES', 'Optical_Depth_047', 1000),
-}
-
 # --- KONFIGURASI UTAMA (WAJIB DIISI) ---
 MODEL_PATH = 'rf_pm25_model_bundle.joblib' 
 URL_TARGET_API = os.environ.get('URL_TARGET_API') 
@@ -23,8 +14,7 @@ LOKASI_NAMA = 'Depok_Test'
 LOKASI_KOORDINAT = [106.821389, -6.398983] # [lon, lat]
 
 # !! PENTING !!
-# Ganti/tambahkan di sini agar sesuai dengan SEMUA fitur yang dibutuhkan model Anda
-# Format: 'nama_fitur_di_model': ('NAMA_DATASET_GEE', 'NAMA_BAND', SKALA_METER),
+# Semua fitur yang dibutuhkan model
 GEE_FEATURE_CONFIG = {
     'NO2_tropo': ('COPERNICUS/S5P/OFFL/L3_NO2', 'tropospheric_NO2_column_number_density', 1000),
     'T2m_C': ('ECMWF/ERA5_LAND/HOURLY', 'temperature_2m', 11132),
@@ -57,9 +47,10 @@ def get_latest_non_null_value(collection_name, band_name, aoi, scale, start_date
             value = image.reduceRegion(reducer=ee.Reducer.mean(), geometry=aoi, scale=scale).get(band_name).getInfo()
             
             if value is not None:
-                print(f"  ✓ Ditemukan data {band_name} pada: {start_str} (Nilai: {value:.2f})")
+                print(f"  ✓ Ditemukan data {band_name} pada: {start_str} (Nilai: {value:.6e})")
                 return value, start_str
         except Exception as e:
+            print(f"    Error pada {start_str}: {str(e)[:50]}")
             pass 
     print(f"  ✗ GAGAL: Tidak ditemukan data {band_name} setelah {MAX_LOOKBACK_DAYS} hari.")
     return None, start_date.strftime('%Y-%m-%d')
@@ -99,6 +90,7 @@ def get_wind_features(aoi, scale, start_date):
                 print(f"    Wind Speed: {wind_speed:.2f} m/s, Wind Direction: {wind_direction:.2f}°")
                 return wind_speed, wind_direction, start_str
         except Exception as e:
+            print(f"    Error pada {start_str}: {str(e)[:50]}")
             pass
     
     print(f"  ✗ GAGAL: Tidak ditemukan data angin setelah {MAX_LOOKBACK_DAYS} hari.")
@@ -107,10 +99,13 @@ def get_wind_features(aoi, scale, start_date):
 def get_features_from_gee(aoi, date):
     """Mengambil SEMUA data fitur dari GEE dengan logika ffill."""
     feature_dict = {}
-    feature_dates = {} 
+    feature_dates = {}
+    
+    print(f"Total fitur yang akan diambil: {len(GEE_FEATURE_CONFIG)} fitur reguler + 2 fitur wind")
     
     # Ambil fitur reguler dari GEE_FEATURE_CONFIG
     for feature_name, (coll, band, scale) in GEE_FEATURE_CONFIG.items():
+        print(f"\n[{feature_name}]")
         value, data_date = get_latest_non_null_value(coll, band, aoi, scale, date)
         
         if value is None:
@@ -122,13 +117,15 @@ def get_features_from_gee(aoi, date):
         feature_dates[feature_name] = data_date
     
     # Ambil data angin (Wind Speed & Direction) secara terpisah
+    print(f"\n[Wind Features]")
     wind_speed, wind_dir, wind_date = get_wind_features(aoi, 11132, date)
     feature_dict['Wind_Speed'] = wind_speed
     feature_dict['Wind_Direction'] = wind_dir
     feature_dates['Wind_Speed'] = wind_date
     feature_dates['Wind_Direction'] = wind_date
 
-    print("✓ Pengambilan data GEE selesai.")
+    print("\n✓ Pengambilan data GEE selesai.")
+    print(f"Total fitur yang berhasil diambil: {len(feature_dict)}")
     return feature_dict, feature_dates
 
 # ==============================================================================
@@ -145,20 +142,14 @@ if URL_TARGET_API is None:
 
 # --- 1. Inisialisasi GEE (Metode Eksplisit) ---
 try:
-    # Info ini harus sesuai dengan file JSON Anda
     SERVICE_ACCOUNT_EMAIL = 'estimatepm25@tugas-akhir-473911.iam.gserviceaccount.com'
-    
-    # Path ini harus sesuai dengan yang dibuat di file .yml
     KEY_FILE_PATH = 'service_key.json' 
     
     print(f"Mencoba autentikasi GEE secara EKSPLISIT dengan:")
     print(f"  Akun: {SERVICE_ACCOUNT_EMAIL}")
     print(f"  File Kunci: {KEY_FILE_PATH}")
     
-    # Buat objek kredensial secara manual
     credentials = ee.ServiceAccountCredentials(SERVICE_ACCOUNT_EMAIL, KEY_FILE_PATH)
-    
-    # Inisialisasi GEE dengan kredensial tersebut
     ee.Initialize(credentials)
     
     print("✓ Otentikasi GEE berhasil (Metode Eksplisit).")
@@ -176,7 +167,7 @@ try:
     model_bundle = joblib.load(MODEL_PATH)
     model = model_bundle['model']
     scaler = model_bundle['scaler']
-    feature_cols = model_bundle['feature_cols'] # Daftar fitur yang dibutuhkan model
+    feature_cols = model_bundle['feature_cols']
     
     print(f"✓ Model '{MODEL_PATH}' berhasil dimuat.")
     print(f"  Model ini membutuhkan {len(feature_cols)} fitur:")
@@ -187,11 +178,19 @@ except Exception as e:
     sys.exit(1)
 
 # --- 3. Ambil Data Fitur dari GEE ---
-print("\n--- Mengambil Fitur dari GEE (dengan ffill) ---")
+print("\n" + "=" * 60)
+print("--- Mengambil Fitur dari GEE (dengan ffill) ---")
+print("=" * 60)
 target_date = datetime.now() 
 aoi = ee.Geometry.Point(LOKASI_KOORDINAT)
 data_fitur, data_dates = get_features_from_gee(aoi, target_date)
-print(f"Fitur yang didapat: {data_fitur}")
+
+print("\n" + "=" * 60)
+print("RINGKASAN FITUR YANG DIDAPAT:")
+print("=" * 60)
+for key, value in data_fitur.items():
+    print(f"  {key:20s}: {value:.6e} (tanggal: {data_dates[key]})")
+print("=" * 60)
 
 # --- 4. Lakukan Estimasi ---
 print("\n--- Melakukan Estimasi PM2.5 ---")
@@ -200,9 +199,9 @@ try:
     
     missing_in_gee = set(feature_cols) - set(df_fitur.columns)
     if missing_in_gee:
-        print(f"  ✗ GAGAL: Fitur yang dibutuhkan model TIDAK ADA di GEE_FEATURE_CONFIG:")
+        print(f"  ✗ GAGAL: Fitur yang dibutuhkan model TIDAK ADA di hasil GEE:")
         print(f"    {missing_in_gee}")
-        print("    Harap tambahkan fitur ini ke 'GEE_FEATURE_CONFIG' di main.py.")
+        print("    Harap periksa kembali kode dan GEE_FEATURE_CONFIG.")
         sys.exit(1)
         
     df_fitur_ordered = df_fitur[feature_cols] 
@@ -212,6 +211,8 @@ try:
     
 except Exception as e:
     print(f"✗ GAGAL saat estimasi: {e}")
+    import traceback
+    traceback.print_exc()
     sys.exit(1)
 
 # --- 5. Kirim Hasil ke API Anda ---
@@ -219,16 +220,17 @@ print("\n--- Mengirim Hasil ke API Target ---")
 payload = {
     'lokasi': LOKASI_NAMA,
     'tanggal_prediksi': target_date.strftime('%Y-%m-%d'),
-    'prediksi_pm25': prediksi_pm25,
+    'prediksi_pm25': float(prediksi_pm25),
     'sumber_data': 'GEE_RF_Model_GitHub_Action',
     'tanggal_fitur': data_dates, 
-    'fitur_asli': data_fitur
+    'fitur_asli': {k: float(v) for k, v in data_fitur.items()}
 }
 
 try:
     response = requests.post(URL_TARGET_API, json=payload, timeout=15)
     if 200 <= response.status_code < 300:
-        print(f"✓ Berhasil mengirim data ke API (Webhook.site). Status: {response.status_code}")
+        print(f"✓ Berhasil mengirim data ke API. Status: {response.status_code}")
+        print(f"  Response: {response.text[:200]}")
     else:
         print(f"✗ Gagal mengirim data ke API. Status: {response.status_code}")
         print(f"  Response: {response.text}")
