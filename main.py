@@ -7,6 +7,15 @@ import os
 import math
 from datetime import datetime, timedelta
 
+GEE_FEATURE_CONFIG = {
+    'NO2_tropo': ('COPERNICUS/S5P/OFFL/L3_NO2', 'tropospheric_NO2_column_number_density', 1000),
+    'T2m_C': ('ECMWF/ERA5_LAND/HOURLY', 'temperature_2m', 11132),
+    'CO': ('COPERNICUS/S5P/OFFL/L3_CO', 'CO_column_number_density', 1000),
+    'O3': ('COPERNICUS/S5P/OFFL/L3_O3', 'O3_column_number_density', 1000),
+    'SO2': ('COPERNICUS/S5P/OFFL/L3_SO2', 'SO2_column_number_density', 1000),
+    'AOD': ('MODIS/006/MCD19A2_GRANULES', 'Optical_Depth_047', 1000),
+}
+
 # --- KONFIGURASI UTAMA (WAJIB DIISI) ---
 MODEL_PATH = 'rf_pm25_model_bundle.joblib' 
 URL_TARGET_API = os.environ.get('URL_TARGET_API') 
