@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 # --- KONFIGURASI UTAMA (WAJIB DIISI) ---
 MODEL_PATH = 'rf_pm25_model_bundle.joblib' 
 URL_TARGET_API = os.environ.get('URL_TARGET_API') 
-GEOJSON_PATH = 'GeojsonFoPy.geojson'  # Path ke file GeoJSON
+GEOJSON_PATH = 'depok_32748.geojson'  # Path ke file GeoJSON
 KOTA_NAMA = 'Depok'
 KOLOM_KECAMATAN = 'WADMKC'  # Nama kolom kecamatan di GeoJSON
 DEBUG_MODE = True  # Set True untuk melihat detail geometry
@@ -114,6 +114,11 @@ def geojson_to_ee_geometry(geojson_geometry):
         geom_type = geojson_geometry['type']
         coords = geojson_geometry['coordinates']
         
+        if DEBUG_MODE:
+            print(f"    Debug - Type: {geom_type}")
+            print(f"    Debug - Coords depth: {get_coords_depth(coords)}")
+            print(f"    Debug - First coord sample: {str(coords)[:200]}...")
+        
         # Validasi koordinat tidak kosong
         if not coords:
             print(f"  ✗ Koordinat kosong")
@@ -161,9 +166,18 @@ def geojson_to_ee_geometry(geojson_geometry):
         return None
     except Exception as e:
         print(f"  ✗ Error konversi geometry: {str(e)[:100]}")
-        import traceback
-        traceback.print_exc()
+        if DEBUG_MODE:
+            import traceback
+            traceback.print_exc()
         return None
+
+def get_coords_depth(coords, depth=0):
+    """Helper function untuk cek kedalaman nested list koordinat."""
+    if not isinstance(coords, list) or len(coords) == 0:
+        return depth
+    if isinstance(coords[0], (int, float)):
+        return depth
+    return get_coords_depth(coords[0], depth + 1)
 
 def get_latest_non_null_value(collection_name, band_name, aoi, scale, start_date):
     """Mencari mundur (ffill) untuk mendapatkan nilai non-null terakhir dari GEE."""
