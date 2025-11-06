@@ -29,6 +29,35 @@ GEE_FEATURE_CONFIG = {
 
 MAX_LOOKBACK_DAYS = 30 # Batas pencarian data mundur
 # ----------------------------------------
+# --- (tambahkan di dekat import/helper lain) ---
+def build_flat_payload(results, tanggal_dt, kota):
+    """
+    Menyusun payload satu-kali-kirim:
+    {
+      "tanggal": "YYYY-MM-DD",
+      "kota": "Depok",
+      "<KecamatanA>": <nilai>,
+      "<KecamatanB>": <nilai>,
+      ...,
+      "rata_rata_kota": <nilai>
+    }
+    """
+    payload = {
+        "tanggal": tanggal_dt.strftime('%Y-%m-%d'),
+        "kota": kota
+    }
+    # isian nilai per kecamatan
+    for r in results:
+        # gunakan nama kecamatan persis seperti di GeoJSON
+        payload[r["kecamatan"]] = round(float(r["prediksi_pm25"]), 6)
+
+    # rata-rata kota (hanya dari yang berhasil)
+    if results:
+        avg_pm25 = sum(r["prediksi_pm25"] for r in results) / len(results)
+    else:
+        avg_pm25 = 0.0
+    payload["rata_rata_kota"] = round(float(avg_pm25), 6)
+    return payload
 
 def load_geojson_boundaries():
     """Memuat file GeoJSON dan mengekstrak boundaries per kecamatan."""
@@ -442,28 +471,35 @@ if results:
     print("-" * 42)
     print(f"{'RATA-RATA KOTA DEPOK':<25} {avg_pm25:>15.2f}")
 
-# --- 6. Kirim Hasil ke API ---
+# --- 6. Kirim Hasil ke API (satu kali kirim, format flat) ---
 if results and URL_TARGET_API:
     print(f"\n{'='*70}")
-    print(f"📤 MENGIRIM DATA KE API")
+    print(f"📤 MENGIRIM DATA KE API (1x request, format flat)")
     print(f"{'='*70}")
-    
-    for idx, result in enumerate(results, 1):
-        print(f"\n[{idx}/{len(results)}] Mengirim data {result['kecamatan']}...")
-        
-        try:
-            response = requests.post(URL_TARGET_API, json=result, timeout=15)
-            
-            if 200 <= response.status_code < 300:
-                print(f"   ✓ Berhasil (Status: {response.status_code})")
-            else:
-                print(f"   ✗ Gagal (Status: {response.status_code})")
-                print(f"   Response: {response.text[:100]}")
-        
-        except requests.exceptions.ConnectionError:
-            print(f"   ✗ Gagal koneksi ke API")
-        except Exception as e:
-            print(f"   ✗ Error: {e}")
+
+    try:
+        flat_payload = build_flat_payload(results, target_date, KOTA_NAMA)
+
+        # tampilkan contoh payload ringkas di log
+        preview_keys = [k for k in flat_payload.keys() if k not in ("tanggal", "kota", "rata_rata_kota")]
+        print(f"   Tanggal        : {flat_payload['tanggal']}")
+        print(f"   Kota           : {flat_payload['kota']}")
+        print(f"   Kolom kecamatan: {', '.join(sorted(preview_keys))}")
+        print(f"   Rata-rata kota : {flat_payload['rata_rata_kota']} µg/m³")
+
+        response = requests.post(URL_TARGET_API, json=flat_payload, timeout=30)
+
+        if 200 <= response.status_code < 300:
+            print(f"   ✓ Berhasil kirim 1 payload (Status: {response.status_code})")
+        else:
+            print(f"   ✗ Gagal (Status: {response.status_code})")
+            print(f"   Response: {response.text[:300]}")
+
+    except requests.exceptions.ConnectionError:
+        print(f"   ✗ Gagal koneksi ke API")
+    except Exception as e:
+        print(f"   ✗ Error: {e}")
+
 
 print(f"\n{'='*70}")
 print(f"✅ PROSES SELESAI")
