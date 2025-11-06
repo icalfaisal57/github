@@ -14,6 +14,7 @@ URL_TARGET_API = os.environ.get('URL_TARGET_API')
 GEOJSON_PATH = 'depok_32748.geojson'  # Path ke file GeoJSON
 KOTA_NAMA = 'Depok'
 KOLOM_KECAMATAN = 'WADMKC'  # Nama kolom kecamatan di GeoJSON
+DEBUG_MODE = True  # Set True untuk melihat detail geometry
 
 # !! PENTING !!
 # Semua fitur yang dibutuhkan model
@@ -36,33 +37,61 @@ def load_geojson_boundaries():
             geojson_data = json.load(f)
         
         print(f"✓ File GeoJSON '{GEOJSON_PATH}' berhasil dimuat.")
+        print(f"  Total features dalam file: {len(geojson_data['features'])}")
         
-        kecamatan_list = []
+        # Dictionary untuk menggabungkan geometri dengan nama kecamatan yang sama
+        kecamatan_dict = {}
+        
         for feature in geojson_data['features']:
             props = feature['properties']
             geometry = feature['geometry']
             
             kecamatan_nama = props.get(KOLOM_KECAMATAN, 'Unknown')
             
-            # Konversi geometry ke format yang bisa digunakan GEE
-            if geometry['type'] == 'Polygon':
-                coords = geometry['coordinates']
-            elif geometry['type'] == 'MultiPolygon':
-                # Ambil polygon pertama jika MultiPolygon
-                coords = geometry['coordinates'][0]
-            else:
-                print(f"  ⚠ Warning: Geometry type '{geometry['type']}' tidak didukung untuk {kecamatan_nama}")
+            # Skip jika geometry tidak valid
+            if not geometry or not geometry.get('coordinates'):
+                print(f"  ⚠ Skipping {kecamatan_nama}: No coordinates")
                 continue
             
+            # Gabungkan geometri untuk kecamatan yang sama
+            if kecamatan_nama not in kecamatan_dict:
+                kecamatan_dict[kecamatan_nama] = {
+                    'nama': kecamatan_nama,
+                    'geometries': [],
+                    'properties': props
+                }
+            
+            kecamatan_dict[kecamatan_nama]['geometries'].append(geometry)
+        
+        # Konversi dictionary ke list dan gabungkan geometri
+        kecamatan_list = []
+        for nama, data in kecamatan_dict.items():
+            # Jika ada multiple geometries untuk satu kecamatan, gabungkan jadi MultiPolygon
+            if len(data['geometries']) > 1:
+                all_coords = []
+                for geom in data['geometries']:
+                    if geom['type'] == 'Polygon':
+                        all_coords.append(geom['coordinates'])
+                    elif geom['type'] == 'MultiPolygon':
+                        all_coords.extend(geom['coordinates'])
+                
+                merged_geometry = {
+                    'type': 'MultiPolygon',
+                    'coordinates': all_coords
+                }
+            else:
+                merged_geometry = data['geometries'][0]
+            
             kecamatan_list.append({
-                'nama': kecamatan_nama,
-                'geometry': geometry,
-                'properties': props
+                'nama': nama,
+                'geometry': merged_geometry,
+                'properties': data['properties']
             })
         
-        print(f"✓ Ditemukan {len(kecamatan_list)} kecamatan:")
-        for kec in kecamatan_list:
-            print(f"  - {kec['nama']}")
+        print(f"✓ Ditemukan {len(kecamatan_list)} kecamatan unik:")
+        for kec in sorted(kecamatan_list, key=lambda x: x['nama']):
+            geom_type = kec['geometry']['type']
+            print(f"  - {kec['nama']:20s} ({geom_type})")
         
         return kecamatan_list
     
@@ -75,25 +104,65 @@ def load_geojson_boundaries():
         sys.exit(1)
     except Exception as e:
         print(f"✗ GAGAL memuat GeoJSON: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 def geojson_to_ee_geometry(geojson_geometry):
-    """Konversi GeoJSON geometry ke ee.Geometry."""
+    """Konversi GeoJSON geometry ke ee.Geometry dengan validasi."""
     try:
-        if geojson_geometry['type'] == 'Polygon':
-            # Format: [[[lon, lat], [lon, lat], ...]]
-            coords = geojson_geometry['coordinates']
-            return ee.Geometry.Polygon(coords)
-        elif geojson_geometry['type'] == 'MultiPolygon':
-            # Format: [[[[lon, lat], ...]], [[[lon, lat], ...]]]
-            coords = geojson_geometry['coordinates']
-            polygons = [ee.Geometry.Polygon(poly) for poly in coords]
-            return ee.Geometry.MultiPolygon(coords)
-        else:
-            print(f"  ⚠ Geometry type '{geojson_geometry['type']}' tidak didukung")
+        geom_type = geojson_geometry['type']
+        coords = geojson_geometry['coordinates']
+        
+        # Validasi koordinat tidak kosong
+        if not coords:
+            print(f"  ✗ Koordinat kosong")
             return None
+        
+        if geom_type == 'Polygon':
+            # Polygon: [[[lon, lat], [lon, lat], ...]]
+            # Pastikan format benar
+            if not isinstance(coords, list) or len(coords) == 0:
+                print(f"  ✗ Format Polygon tidak valid")
+                return None
+            
+            # Validasi setiap koordinat
+            try:
+                # GEE expects: [[[lon, lat], ...]]
+                return ee.Geometry.Polygon(coords)
+            except Exception as e:
+                print(f"  ✗ Error create Polygon: {str(e)[:100]}")
+                return None
+                
+        elif geom_type == 'MultiPolygon':
+            # MultiPolygon: [[[[lon, lat], ...]], [[[lon, lat], ...]]]
+            if not isinstance(coords, list) or len(coords) == 0:
+                print(f"  ✗ Format MultiPolygon tidak valid")
+                return None
+            
+            try:
+                # GEE expects list of polygon coordinates
+                return ee.Geometry.MultiPolygon(coords)
+            except Exception as e:
+                print(f"  ✗ Error create MultiPolygon: {str(e)[:100]}")
+                # Coba fallback: buat dari polygon pertama saja
+                try:
+                    print(f"  ℹ Mencoba fallback: gunakan polygon pertama saja...")
+                    return ee.Geometry.Polygon(coords[0])
+                except:
+                    return None
+        
+        else:
+            print(f"  ✗ Geometry type '{geom_type}' tidak didukung")
+            return None
+            
+    except KeyError as e:
+        print(f"  ✗ Missing key in geometry: {e}")
+        return None
     except Exception as e:
-        print(f"  ✗ Error konversi geometry: {e}")
+        print(f"  ✗ Error konversi geometry: {str(e)[:100]}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def get_latest_non_null_value(collection_name, band_name, aoi, scale, start_date):
