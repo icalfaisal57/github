@@ -6,7 +6,7 @@ Jalankan: python debug_geojson.py
 import json
 import sys
 
-GEOJSON_PATH = 'depok_32748.geojson'
+GEOJSON_PATH = 'GeojsonFoPy.geojson'
 KOLOM_KECAMATAN = 'WADMKC'
 
 def inspect_geojson():
