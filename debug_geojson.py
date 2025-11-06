@@ -86,8 +86,19 @@ def inspect_geojson():
             if coords:
                 sample_coord = get_first_coordinate(coords)
                 if sample_coord:
-                    lon, lat = sample_coord
-                    print(f"  First coordinate: [{lon:.4f}, {lat:.4f}]")
+                    if len(sample_coord) == 3:
+                        lon, lat, z = sample_coord
+                        print(f"  First coordinate: [{lon:.4f}, {lat:.4f}, {z:.1f}]")
+                        print(f"  ⚠ PERINGATAN: Koordinat 3D terdeteksi!")
+                        print(f"    GEE hanya terima 2D (lon, lat)")
+                        print(f"    → Kode sudah menangani ini otomatis (hapus Z)")
+                    elif len(sample_coord) == 2:
+                        lon, lat = sample_coord
+                        print(f"  First coordinate: [{lon:.4f}, {lat:.4f}]")
+                        print(f"  ✓ Koordinat 2D (sudah benar)")
+                    
+                    lon = sample_coord[0]
+                    lat = sample_coord[1]
                     
                     valid_lon = 106 <= lon <= 107
                     valid_lat = -7 <= lat <= -6
