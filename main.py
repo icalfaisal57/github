@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 # --- KONFIGURASI UTAMA (WAJIB DIISI) ---
 MODEL_PATH = 'rf_pm25_model_bundle.joblib' 
 URL_TARGET_API = os.environ.get('URL_TARGET_API') 
-GEOJSON_PATH = 'depok_32748.geojson'  # Path ke file GeoJSON
+GEOJSON_PATH = '2d.geojson'  # Path ke file GeoJSON
 KOTA_NAMA = 'Depok'
 KOLOM_KECAMATAN = 'WADMKC'  # Nama kolom kecamatan di GeoJSON
 DEBUG_MODE = True  # Set True untuk melihat detail geometry
