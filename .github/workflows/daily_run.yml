@@ -6,7 +6,6 @@ on:
     - cron: '0 0 * * *'
   # Bisa dijalankan manual dari tab Actions
   workflow_dispatch:
-    inputs:
 
 permissions:
   contents: read
