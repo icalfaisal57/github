@@ -7,10 +7,6 @@ on:
   # Bisa dijalankan manual dari tab Actions
   workflow_dispatch:
     inputs:
-      ref:
-        description: 'Branch atau tag yang akan dijalankan'
-        required: false
-        default: 'fix'
 
 permissions:
   contents: read
