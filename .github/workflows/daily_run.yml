@@ -122,13 +122,13 @@ jobs:
       
       - name: Upload Logs (on failure)
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: error-logs
+          name: error-logs-${{ github.run_number }}
           path: |
             *.log
-            service_key.json
           retention-days: 7
+          if-no-files-found: warn
       
       - name: Cleanup
         if: always()
