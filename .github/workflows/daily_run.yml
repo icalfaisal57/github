@@ -4,13 +4,15 @@ on:
   # Jalan otomatis setiap hari jam 00:00 UTC (07:00 WIB)
   schedule:
     - cron: '0 0 * * *'
-  # Bisa dijalankan manual dari tab Actions
+  
+  # Manual run dengan pilihan branch
   workflow_dispatch:
     inputs:
-      ref:
-        description: 'Branch atau tag yang akan dijalankan'
+      branch:
+        description: 'Branch to run (default: FIX)'
         required: false
-        default: 'fix'
+        default: 'FIX'
+        type: string
 
 permissions:
   contents: read
@@ -18,51 +20,119 @@ permissions:
 jobs:
   run-prediction:
     runs-on: ubuntu-latest
-
-    # Catatan:
-    # - Workflow terjadwal SELALU dieksekusi dari default branch,
-    #   jadi kita paksa checkout branch 'fix' di langkah checkout.
-    # - Untuk manual run, kita ambil input ref (default 'fix').
-
+    
     steps:
-      - name: Checkout repository (branch fix untuk schedule, atau input saat manual)
+      - name: Determine Branch
+        id: branch
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "branch=FIX" >> $GITHUB_OUTPUT
+            echo "📅 Scheduled run - using branch: FIX"
+          else
+            echo "branch=${{ inputs.branch || 'FIX' }}" >> $GITHUB_OUTPUT
+            echo "🔧 Manual run - using branch: ${{ inputs.branch || 'FIX' }}"
+          fi
+      
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ steps.branch.outputs.branch }}
           lfs: true
-          # Jika event adalah schedule, pakai 'fix'.
-          # Jika manual, pakai inputs.ref (default 'fix').
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || 'fix' }}
-
+          fetch-depth: 1
+      
+      - name: Verify Branch
+        run: |
+          echo "✓ Current branch: $(git branch --show-current)"
+          echo "✓ Last commit: $(git log -1 --oneline)"
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
+          cache: 'pip'
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Create Service Account Key File
         env:
           GEE_KEY_JSON: ${{ secrets.GEE_SERVICE_ACCOUNT_KEY }}
         run: |
-          echo "Menulis GEE_KEY_JSON ke service_key.json..."
+          echo "🔐 Membuat file service_key.json..."
           printf "%s" "$GEE_KEY_JSON" > service_key.json
-          ls -l service_key.json
-          echo "✓ File service_key.json telah dibuat."
-
+          
+          # Verify file created
+          if [ -f service_key.json ]; then
+            echo "✓ File service_key.json berhasil dibuat"
+            ls -lh service_key.json
+          else
+            echo "✗ GAGAL: File service_key.json tidak ditemukan"
+            exit 1
+          fi
+      
       - name: Set Google Auth Environment Variable
         run: |
-          echo "GOOGLE_APPLICATION_CREDENTIALS=${{ github.workspace }}/service_key.json" >> $GITHUB_ENV
-          echo "✓ Variabel GOOGLE_APPLICATION_CREDENTIALS telah diatur."
-
+          SERVICE_KEY_PATH="${{ github.workspace }}/service_key.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$SERVICE_KEY_PATH" >> $GITHUB_ENV
+          echo "✓ GOOGLE_APPLICATION_CREDENTIALS set ke: $SERVICE_KEY_PATH"
+      
+      - name: Verify Environment
+        run: |
+          echo "================================================"
+          echo "🔍 VERIFIKASI ENVIRONMENT"
+          echo "================================================"
+          echo "Working Directory: $(pwd)"
+          echo "Python Version: $(python --version)"
+          echo "Pip Version: $(pip --version)"
+          echo ""
+          echo "Files in workspace:"
+          ls -la
+          echo ""
+          echo "GOOGLE_APPLICATION_CREDENTIALS: $GOOGLE_APPLICATION_CREDENTIALS"
+          echo "Service Key File:"
+          ls -lh "$GOOGLE_APPLICATION_CREDENTIALS"
+          echo ""
+          echo "URL_TARGET_API: ${URL_TARGET_API:0:50}..." # Show first 50 chars only
+          echo "================================================"
+        env:
+          URL_TARGET_API: ${{ secrets.URL_TARGET_API }}
+      
       - name: Run Python Script
         env:
           URL_TARGET_API: ${{ secrets.URL_TARGET_API }}
         run: |
-          echo "--- MEMULAI LANGKAH 6 ---"
-          echo "GOOGLE_APPLICATION_CREDENTIALS = $GOOGLE_APPLICATION_CREDENTIALS"
-          ls -l "$GOOGLE_APPLICATION_CREDENTIALS"
-          echo "--- Menjalankan Skrip Python ---"
+          echo "================================================"
+          echo "🚀 MENJALANKAN ESTIMASI PM2.5"
+          echo "================================================"
+          echo "Start Time: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          
           python main.py
+          
+          EXIT_CODE=$?
+          echo ""
+          echo "================================================"
+          echo "End Time: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "Exit Code: $EXIT_CODE"
+          echo "================================================"
+          
+          exit $EXIT_CODE
+      
+      - name: Upload Logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: error-logs
+          path: |
+            *.log
+            service_key.json
+          retention-days: 7
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "🧹 Cleaning up sensitive files..."
+          rm -f service_key.json
+          echo "✓ Cleanup complete"
