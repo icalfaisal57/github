@@ -23,7 +23,7 @@ GEE_FEATURE_CONFIG = {
     'CO': ('COPERNICUS/S5P/NRTI/L3_CO', 'CO_column_number_density', 1000),
     'O3': ('COPERNICUS/S5P/NRTI/L3_O3', 'O3_column_number_density', 1000),
     'SO2': ('COPERNICUS/S5P/NRTI/L3_SO2', 'SO2_column_number_density', 1000),
-    'AOD': ('MODIS/061/MCD19A2_GRANULES', 'Optical_Depth_055', 1000),
+    'AOD': ('COPERNICUS/S5P/NRTI/L3_AER_AI', 'absorbing_aerosol_index', 1000),
 }
 
 MAX_LOOKBACK_DAYS = 30  # Batas pencarian data mundur
