@@ -20,9 +20,9 @@ DEBUG_MODE = True            # Set True untuk debug geometry
 GEE_FEATURE_CONFIG = {
     'NO2_tropo': ('COPERNICUS/S5P/OFFL/L3_NO2', 'tropospheric_NO2_column_number_density', 1000),
     'T2m_C': ('ECMWF/ERA5_LAND/HOURLY', 'temperature_2m', 11132),
-    'CO': ('COPERNICUS/S5P/OFFL/L3_CO', 'CO_column_number_density', 1000),
-    'O3': ('COPERNICUS/S5P/OFFL/L3_O3', 'O3_column_number_density', 1000),
-    'SO2': ('COPERNICUS/S5P/OFFL/L3_SO2', 'SO2_column_number_density', 1000),
+    'CO': ('COPERNICUS/S5P/NRTI/L3_CO', 'CO_column_number_density', 1000),
+    'O3': ('COPERNICUS/S5P/NRTI/L3_O3', 'O3_column_number_density', 1000),
+    'SO2': ('COPERNICUS/S5P/NRTI/L3_SO2', 'SO2_column_number_density', 1000),
     'AOD': ('MODIS/061/MCD19A2_GRANULES', 'Optical_Depth_055', 1000),
 }
 
