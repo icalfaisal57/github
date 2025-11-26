@@ -266,7 +266,7 @@ def get_features_from_gee(aoi, date, kecamatan_nama):
     feature_dict = {}
     feature_dates = {}
 
-    NON_NEGATIVE_FEATURES = ['CO', 'NO2_tropo', 'O3', 'SO2', 'AOD', 'Wind_Speed']
+    NON_NEGATIVE_FEATURES = ['CO', 'NO2_tropo', 'O3', 'SO2', 'absorbing_aerosol_index', 'Wind_Speed']
 
     print(f"  📊 Mengambil data untuk: {kecamatan_nama}")
 
