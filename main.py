@@ -10,8 +10,7 @@ from datetime import datetime, timedelta
 
 # --- KONFIGURASI UTAMA ---
 MODEL_PATH = 'rf_pm25_model_bundle.joblib'
-URL_TARGET_API_1 = os.environ.get('URL_TARGET_API_1')  # Secret pertama
-URL_TARGET_API_2 = os.environ.get('URL_TARGET_API_2')  # Secret kedua (BARU)
+URL_TARGET_API = os.environ.get('URL_TARGET_API')  # Bisa base URL atau full URL
 GEOJSON_PATH = '2d.geojson'  # Path ke file GeoJSON
 KOTA_NAMA = 'Depok'
 KOLOM_KECAMATAN = 'WADMKC'   # Nama kolom kecamatan di GeoJSON
@@ -352,95 +351,16 @@ def estimate_pm25_for_kecamatan(kecamatan_data, model, scaler, feature_cols, tar
         return None
 
 
-# ----------------- Fungsi Kirim ke API -----------------
-def send_to_api(url_name, url, payload, timeout=30):
-    """
-    Fungsi helper untuk mengirim payload ke satu endpoint API.
-    
-    Args:
-        url_name: Nama identifier untuk API (misal: "API 1", "API 2")
-        url: URL endpoint
-        payload: Data yang akan dikirim
-        timeout: Timeout dalam detik
-    
-    Returns:
-        tuple: (success: bool, message: str)
-    """
-    try:
-        # Validasi URL
-        url = url.strip()
-        if not (url.startswith("http://") or url.startswith("https://")):
-            return False, f"URL tidak valid: {url}. Harus termasuk http(s)://"
-        
-        # Tambahkan endpoint jika belum ada
-        if not url.rstrip("/").endswith("/api/pm25/ingest"):
-            url = url.rstrip("/") + "/api/pm25/ingest"
-        
-        # Info payload
-        kec_list = ", ".join(sorted(list(payload["estimasi"].keys())))
-        print(f"\n   {url_name}:")
-        print(f"   URL            : {url}")
-        print(f"   Tanggal        : {payload['tanggal']}")
-        print(f"   Kota           : {payload['kota']}")
-        print(f"   Kecamatan      : {kec_list}")
-        print(f"   Rata-rata kota : {payload['rata_rata_kota']:.6f} µg/m³")
-        
-        # Kirim request
-        response = requests.post(url, json=payload, timeout=timeout)
-        
-        # Cek response
-        if 200 <= response.status_code < 300:
-            msg = f"✓ {url_name} Berhasil (Status: {response.status_code})"
-            print(f"   {msg}")
-            print(f"   Response: {response.text[:300]}")
-            return True, msg
-        else:
-            msg = f"✗ {url_name} Gagal (Status: {response.status_code})"
-            print(f"   {msg}")
-            print(f"   Response: {response.text[:500]}")
-            return False, msg
-            
-    except requests.exceptions.ConnectionError:
-        msg = f"✗ {url_name} - Gagal koneksi ke server"
-        print(f"   {msg}")
-        return False, msg
-    except requests.exceptions.Timeout:
-        msg = f"✗ {url_name} - Request timeout setelah {timeout} detik"
-        print(f"   {msg}")
-        return False, msg
-    except Exception as e:
-        msg = f"✗ {url_name} - Error: {str(e)}"
-        print(f"   {msg}")
-        return False, msg
-
-
 # ================== MAIN ==================
 print("=" * 70)
 print(f"🚀 ESTIMASI PM2.5 PER KECAMATAN - KOTA DEPOK")
 print(f"   Waktu Mulai: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 70)
 
-# Validasi secrets
-api_configs = []
-if URL_TARGET_API_1:
-    api_configs.append(("API 1", URL_TARGET_API_1))
-else:
-    print("⚠ WARNING: Secret 'URL_TARGET_API_1' tidak ditemukan.")
-
-if URL_TARGET_API_2:
-    api_configs.append(("API 2", URL_TARGET_API_2))
-else:
-    print("⚠ WARNING: Secret 'URL_TARGET_API_2' tidak ditemukan.")
-
-if not api_configs:
-    print("✗ GAGAL: Tidak ada URL API yang valid.")
-    print("  Pastikan minimal satu secret (URL_TARGET_API_1 atau URL_TARGET_API_2)")
-    print("  sudah ditambahkan di Settings → Secrets → Actions.")
+if URL_TARGET_API is None:
+    print("✗ GAGAL: Secret 'URL_TARGET_API' tidak ditemukan.")
+    print("  Pastikan sudah menambahkannya di Settings → Secrets → Actions.")
     sys.exit(1)
-
-print(f"\n📡 Konfigurasi API: {len(api_configs)} endpoint akan digunakan")
-for name, url in api_configs:
-    print(f"   - {name}: {url[:50]}{'...' if len(url) > 50 else ''}")
 
 # 1) Inisialisasi GEE
 try:
@@ -513,38 +433,45 @@ if results:
     print("-" * 42)
     print(f"{'RATA-RATA KOTA DEPOK':<25} {avg_pm25:>15.2f}")
 
-# 6) Kirim Hasil ke API (Kirim ke SEMUA endpoint yang dikonfigurasi)
-if results and api_configs:
+# 6) Kirim Hasil ke API (1x request, payload agregat sesuai schema)
+if results and URL_TARGET_API:
     print(f"\n{'=' * 70}")
-    print(f"📤 MENGIRIM DATA KE {len(api_configs)} API ENDPOINT")
+    print(f"📤 MENGIRIM DATA KE API (1x request, payload agregat)")
     print(f"{'=' * 70}")
 
-    # Siapkan payload
-    agg_payload = build_aggregated_payload(
-        results=results,
-        tanggal_dt=target_date,
-        kota=KOTA_NAMA,
-        include_tanggal_fitur=True
-    )
+    try:
+        url = URL_TARGET_API.strip()
+        if not (url.startswith("http://") or url.startswith("https://")):
+            raise ValueError(f"URL_TARGET_API tidak valid: {url}. Harus termasuk http(s)://")
+        if not url.rstrip("/").endswith("/api/pm25/ingest"):
+            url = url.rstrip("/") + "/api/pm25/ingest"
 
-    # Kirim ke setiap endpoint
-    api_results = []
-    for api_name, api_url in api_configs:
-        success, message = send_to_api(api_name, api_url, agg_payload, timeout=30)
-        api_results.append((api_name, success, message))
+        agg_payload = build_aggregated_payload(
+            results=results,
+            tanggal_dt=target_date,
+            kota=KOTA_NAMA,
+            include_tanggal_fitur=True
+        )
 
-    # Ringkasan pengiriman API
-    print(f"\n{'=' * 70}")
-    print(f"📋 RINGKASAN PENGIRIMAN API")
-    print(f"{'=' * 70}")
-    success_apis = sum(1 for _, success, _ in api_results if success)
-    failed_apis = len(api_results) - success_apis
-    
-    for api_name, success, message in api_results:
-        status_icon = "✅" if success else "❌"
-        print(f"{status_icon} {api_name}: {message}")
-    
-    print(f"\nTotal: {success_apis} berhasil, {failed_apis} gagal dari {len(api_results)} endpoint")
+        kec_list = ", ".join(sorted(list(agg_payload["estimasi"].keys())))
+        print(f"   Tanggal        : {agg_payload['tanggal']}")
+        print(f"   Kota           : {agg_payload['kota']}")
+        print(f"   Kolom kecamatan: {kec_list}")
+        print(f"   Rata-rata kota : {agg_payload['rata_rata_kota']:.6f} µg/m³")
+
+        response = requests.post(url, json=agg_payload, timeout=30)
+
+        if 200 <= response.status_code < 300:
+            print(f"   ✓ Berhasil (Status: {response.status_code})")
+            print(f"   Response: {response.text[:300]}")
+        else:
+            print(f"   ✗ Gagal (Status: {response.status_code})")
+            print(f"   Response: {response.text[:500]}")
+
+    except requests.exceptions.ConnectionError:
+        print("   ✗ Gagal koneksi ke API")
+    except Exception as e:
+        print(f"   ✗ Error: {e}")
 
 print(f"\n{'=' * 70}")
 print(f"✅ PROSES SELESAI")
