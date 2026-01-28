@@ -94,19 +94,34 @@ jobs:
           echo "Service Key File:"
           ls -lh "$GOOGLE_APPLICATION_CREDENTIALS"
           echo ""
-          echo "URL_TARGET_API: ${URL_TARGET_API:0:50}..." # Show first 50 chars only
+          echo "📡 API Configuration:"
+          echo "  - URL_TARGET_API_1: $([[ -n "$URL_TARGET_API_1" ]] && echo 'Configured ✓' || echo 'Not set ✗')"
+          echo "  - URL_TARGET_API_2: $([[ -n "$URL_TARGET_API_2" ]] && echo 'Configured ✓' || echo 'Not set ✗')"
+          if [[ -n "$URL_TARGET_API_1" ]]; then
+            echo "    API 1: ${URL_TARGET_API_1:0:50}..." # Show first 50 chars only
+          fi
+          if [[ -n "$URL_TARGET_API_2" ]]; then
+            echo "    API 2: ${URL_TARGET_API_2:0:50}..." # Show first 50 chars only
+          fi
           echo "================================================"
         env:
-          URL_TARGET_API: ${{ secrets.URL_TARGET_API }}
+          URL_TARGET_API_1: ${{ secrets.URL_TARGET_API_1 }}
+          URL_TARGET_API_2: ${{ secrets.URL_TARGET_API_2 }}
       
       - name: Run Python Script
         env:
-          URL_TARGET_API: ${{ secrets.URL_TARGET_API }}
+          # ⚠️ PERUBAHAN UTAMA: Menambahkan 2 environment variables baru
+          URL_TARGET_API_1: ${{ secrets.URL_TARGET_API_1 }}
+          URL_TARGET_API_2: ${{ secrets.URL_TARGET_API_2 }}
         run: |
           echo "================================================"
           echo "🚀 MENJALANKAN ESTIMASI PM2.5"
           echo "================================================"
           echo "Start Time: $(date '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+          echo "📡 Target APIs:"
+          echo "  - API 1: $([[ -n "$URL_TARGET_API_1" ]] && echo 'Ready ✓' || echo 'Not configured ✗')"
+          echo "  - API 2: $([[ -n "$URL_TARGET_API_2" ]] && echo 'Ready ✓' || echo 'Not configured ✗')"
           echo ""
           
           python main.py
